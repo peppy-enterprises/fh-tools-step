@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.CommandLine;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -128,21 +129,23 @@ internal class Program {
     }
 
     private static string _emit_params(FhMethodLocal method) {
-        StringBuilder sb = new StringBuilder("(");
+        List<string> param_str = [];
+
         foreach (FhSymbolParameterLocal param in method.Parameters) {
-            sb.Append($"{_translate_arg_type(param.ParameterType)} {_translate_param_name(param.ParameterName)}, ");
+            param_str.Add($"{_translate_arg_type(param.ParameterType)} {_translate_param_name(param.ParameterName)}");
         }
-        sb.Remove(sb.Length - 2, 2); // TODO: fix
-        sb.Append(')');
-        return sb.ToString();
+
+        return $"({string.Join(',', param_str)})";
     }
 
     private static string _emit_method(FhMethodLocal method, FhGhidraSymbolDecl symbol) {
+        int addr = int.Parse(symbol.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+
         return $"""
     // Original after pruning: {symbol.CallConv} {symbol.Signature} at {symbol.Location}
     {_translate_callconv(symbol.CallConv)}
     public unsafe delegate {method.ReturnType} {method.FunctionName}{_emit_params(method)};
-    public const nint __addr_{symbol.Name} = 0x{symbol.Location.ToUpperInvariant()};
+    public const nint __addr_{symbol.Name} = 0x{addr.ToString("X")};
 
 """;
     }
@@ -183,14 +186,14 @@ public static class FhCall {
 
             // We lex the function signature in the form {RETURN_TYPE} {NAME}({PARAMETER_TYPE} {PARAMETER_NAME} ... );
             // !!! temporarily pessimized !!! fixme later !!!
-            string[] tokens = symbol.Signature.Split(' ', ',', '(', ')');
+            string[] tokens = symbol.Signature.Split([ ' ', ',', '(', ')' ], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
             ReadOnlySpan<char> original_return_type   = tokens[0]; // We will translate this later.
             ReadOnlySpan<char> original_function_name = tokens[1]; // Preserved verbatim.
 
-            for (int i = 2; i < tokens.Length; i += 2) {
-                ReadOnlySpan<char> original_parameter_type = tokens[i];
-                ReadOnlySpan<char> original_parameter_name = tokens[i + 1];
+            for (int i = 2; i < tokens.Length - 1; ) {
+                ReadOnlySpan<char> original_parameter_type = tokens[i++];
+                ReadOnlySpan<char> original_parameter_name = tokens[i++];
 
                 parameters.Add(new FhSymbolParameterLocal(original_parameter_type, original_parameter_name));
             }
