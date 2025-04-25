@@ -36,21 +36,27 @@ internal struct FhSymbolParameterLocal(ReadOnlySpan<char> ParameterType, ReadOnl
 }
 
 internal class Program {
-    static void Main(string[] args) {
-        Option<string> opt_file_path = new Option<string>("--src", "Set the path to the source file.");
-        Option<string> opt_dest_path = new Option<string>("--dest", "Set the folder where the C# file should be written.");
+    private static Dictionary<string, string> _type_map = [];
 
-        opt_file_path.IsRequired = true;
-        opt_dest_path.IsRequired = true;
+    static void Main(string[] args) {
+        Option<string> opt_file_path    = new Option<string>("--src", "Set the path to the source file.");
+        Option<string> opt_dest_path    = new Option<string>("--dest", "Set the folder where the C# file should be written.");
+        Option<string> opt_typemap_path = new Option<string>("--map", "Set the path to a Ghidra -> Fh type map.");
+
+        opt_file_path   .IsRequired = true;
+        opt_dest_path   .IsRequired = true;
+        opt_typemap_path.IsRequired = false;
 
         RootCommand root_cmd = new RootCommand("Process a Ghidra symbol table and create a C# code file.") {
             opt_file_path,
-            opt_dest_path
+            opt_dest_path,
+            opt_typemap_path
         };
 
         root_cmd.SetHandler(FhSTEPMain, new FhSTEPArgsBinder(
             opt_file_path,
-            opt_dest_path));
+            opt_dest_path,
+            opt_typemap_path));
 
         root_cmd.Invoke(args);
         return;
@@ -96,35 +102,25 @@ internal class Program {
     }
 
     // TODO: fix
-    private static ReadOnlySpan<char> _translate_arg_type(ReadOnlySpan<char> arg_type) {
-        if (arg_type.Contains('*')) return "nint";
-
-        return arg_type switch {
-            "void"       => "",
-            "undefined"  => "nint",
-            "undefined1" => "byte",
-            "undefined2" => "ushort",
-            "undefined4" => "uint",
-            "undefined8" => "ulong",
-            _            => "nint"
-        };
+    private static ReadOnlySpan<char> _translate_param_type(string param_type) {
+        return _type_map.TryGetValue(param_type, out string? mapped_type)
+            ? mapped_type
+            : "nint";
     }
 
     // TODO: fix
-    private static ReadOnlySpan<char> _translate_return_type(ReadOnlySpan<char> arg_type) {
-        if (arg_type.Contains('*')) return "nint";
-
-        return arg_type switch {
+    private static ReadOnlySpan<char> _translate_return_type(string return_type) {
+        return return_type switch {
             "void" => "void",
-            _      => _translate_arg_type(arg_type)
+            _      => _translate_param_type(return_type)
         };
     }
 
     // TODO: fix
-    private static ReadOnlySpan<char> _translate_param_name(ReadOnlySpan<char> arg_name) {
-        return arg_name switch {
+    private static ReadOnlySpan<char> _translate_param_name(ReadOnlySpan<char> param_name) {
+        return param_name switch {
             "this" => "_this",
-            _      => arg_name
+            _      => param_name
         };
     }
 
@@ -132,10 +128,10 @@ internal class Program {
         List<string> param_str = [];
 
         foreach (FhSymbolParameterLocal param in method.Parameters) {
-            param_str.Add($"{_translate_arg_type(param.ParameterType)} {_translate_param_name(param.ParameterName)}");
+            param_str.Add($"{_translate_param_type(param.ParameterType)} {_translate_param_name(param.ParameterName)}");
         }
 
-        return $"({string.Join(',', param_str)})";
+        return $"({string.Join(", ", param_str)})";
     }
 
     private static string _emit_method(FhMethodLocal method, FhGhidraSymbolDecl symbol) {
@@ -166,6 +162,14 @@ public static class FhCall {
     private static void _emit_symtable(string dest_path) {
         Stopwatch perf = Stopwatch.StartNew();
 
+        try {
+            string type_map_str = File.ReadAllText(FhSTEPConfig.TypeMapPath);
+            _type_map = JsonSerializer.Deserialize<Dictionary<string, string>>(type_map_str) ?? [];
+        }
+        catch {
+            Console.WriteLine("Type map load failed or type map path not specified.");
+        }
+
         // Required because Ghidra exports to CSV, so they have to escape commas strongly.
         string               unescaped_json      = _unescape(File.ReadAllText(FhSTEPConfig.SrcPath));
         FhGhidraSymbolDecl[] symbol_declarations = JsonSerializer.Deserialize<FhGhidraSymbolDecl[]>(unescaped_json) ?? [];
@@ -188,8 +192,8 @@ public static class FhCall {
             // !!! temporarily pessimized !!! fixme later !!!
             string[] tokens = symbol.Signature.Split([ ' ', ',', '(', ')' ], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-            ReadOnlySpan<char> original_return_type   = tokens[0]; // We will translate this later.
-            ReadOnlySpan<char> original_function_name = tokens[1]; // Preserved verbatim.
+            string original_return_type   = tokens[0]; // We will translate this later.
+            string original_function_name = tokens[1]; // Preserved verbatim.
 
             for (int i = 2; i < tokens.Length - 1; ) {
                 ReadOnlySpan<char> original_parameter_type = tokens[i++];
