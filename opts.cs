@@ -28,10 +28,10 @@ internal class FhSTEPArgsBinder : BinderBase<FhSTEPArgs> {
         _opt_dest_path = opt_dest_path;
     }
 
-    protected override FhSTEPArgs GetBoundValue(BindingContext bindingContext) {
-        string srcPath    = bindingContext.ParseResult.GetValueForOption(_opt_src_path) ?? throw new Exception("E_CLI_ARG_NULL");
-        string destPath   = bindingContext.ParseResult.GetValueForOption(_opt_dest_path) ?? throw new Exception("E_CLI_ARG_NULL");
+    protected override FhSTEPArgs GetBoundValue(BindingContext binding_context) {
+        string src_path    = binding_context.ParseResult.GetValueForOption(_opt_src_path)  ?? throw new Exception("E_CLI_ARG_NULL");
+        string dest_path   = binding_context.ParseResult.GetValueForOption(_opt_dest_path) ?? throw new Exception("E_CLI_ARG_NULL");
 
-        return new FhSTEPArgs(srcPath, destPath);
+        return new FhSTEPArgs(src_path, dest_path);
     }
 }

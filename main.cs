@@ -10,8 +10,6 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 
-using Fahrenheit.Core;
-
 namespace Fahrenheit.Tools.STEP;
 
 // https://csvjson.com/csv2json - PARSE NUMBERS: OFF, PARSE JSON: OFF, OUTPUT: ARRAY
@@ -184,15 +182,15 @@ public static class FhCall {
             }
 
             // We lex the function signature in the form {RETURN_TYPE} {NAME}({PARAMETER_TYPE} {PARAMETER_NAME} ... );
-            FhTokenizer        tokenizer = new FhTokenizer(symbol.Signature, [ ' ', ',', '(', ')' ]);
-            ReadOnlySpan<char> token_local;
+            // !!! temporarily pessimized !!! fixme later !!!
+            string[] tokens = symbol.Signature.Split(' ', ',', '(', ')');
 
-            ReadOnlySpan<char> original_return_type   = tokenizer.GetNextToken(); // We will translate this later.
-            ReadOnlySpan<char> original_function_name = tokenizer.GetNextToken(); // Preserved verbatim.
+            ReadOnlySpan<char> original_return_type   = tokens[0]; // We will translate this later.
+            ReadOnlySpan<char> original_function_name = tokens[1]; // Preserved verbatim.
 
-            while ((token_local = tokenizer.GetNextToken()) != ReadOnlySpan<char>.Empty) {
-                ReadOnlySpan<char> original_parameter_type = token_local;
-                ReadOnlySpan<char> original_parameter_name = tokenizer.GetNextToken();
+            for (int i = 2; i < tokens.Length; i += 2) {
+                ReadOnlySpan<char> original_parameter_type = tokens[i];
+                ReadOnlySpan<char> original_parameter_name = tokens[i + 1];
 
                 parameters.Add(new FhSymbolParameterLocal(original_parameter_type, original_parameter_name));
             }
