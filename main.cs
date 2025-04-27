@@ -111,8 +111,9 @@ internal class Program {
     // TODO: fix
     private static ReadOnlySpan<char> _translate_return_type(string return_type) {
         return return_type switch {
-            "void" => "void",
-            _      => _translate_param_type(return_type)
+            "void"      => "void",
+            "undefined" => "void",
+            _           => _translate_param_type(return_type)
         };
     }
 

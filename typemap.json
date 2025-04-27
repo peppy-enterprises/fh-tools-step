@@ -12,10 +12,11 @@
     "uint":          "uint",
     "uint*":         "uint*",
     "float":         "float",
+    "float*":        "float*",
     "MsActor":       "Fahrenheit.Core.FFX.Actor",
     "MsActor*":      "Fahrenheit.Core.FFX.Actor*",
     "MsChr":         "Fahrenheit.Core.FFX.Battle.Chr",
     "MsChr*":        "Fahrenheit.Core.FFX.Battle.Chr*",
-    "MsPlyCommand":  "Fahrenheit.Core.FFX.PCommand", 
-    "MsPlyCommand*": "Fahrenheit.Core.FFX.PCommand*"  
+    "MsPlyCommand":  "Fahrenheit.Core.FFX.PCommand",
+    "MsPlyCommand*": "Fahrenheit.Core.FFX.PCommand*"
 }
