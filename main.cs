@@ -72,15 +72,13 @@ internal class Program {
     // TODO: fix fix fix fix fix fix fix
     private static bool _is_interpretable(FhGhidraSymbolDecl symbol) {
         return  symbol.Type      == "Function"     &&
-                symbol.Source    == "USER_DEFINED" &&
+               (symbol.Source    == "USER_DEFINED" || 
+                symbol.Source    == "IMPORTED")    &&
                 symbol.Namespace == "Global"       && // might be a removable restriction
                !symbol.Name.Contains("operator")   && // ignore operator.new, operator.delete
                !symbol.Name.Contains("Unwind@")    && // ignore Unwind@{ADDR} thunks
-               !symbol.Name.Contains("=^._.^=")    && // ignore temporarily mismarked functions
                !symbol.Signature.Contains('.')     && // ignore vararg functions
                !symbol.Signature.Contains(':')     && // ignore anything that even vaguely resembles a C++ namespace
-               !symbol.Signature.Contains('!')     && // ignore OTHERWISE mismarked functions
-               !symbol.Signature.Contains('?')     && // ignore OTHERWISE OTHERWISE mismarked functions
                !symbol.Signature.Contains('-');
     }
 
@@ -97,6 +95,7 @@ internal class Program {
             "__cdecl"    => "[UnmanagedFunctionPointer(CallingConvention.Cdecl)]",
             "__stdcall"  => "[UnmanagedFunctionPointer(CallingConvention.StdCall)]",
             "__fastcall" => "[UnmanagedFunctionPointer(CallingConvention.FastCall)]",
+            "unknown"    => "[UnmanagedFunctionPointer(CallingConvention.Cdecl)]",
             _            => throw new Exception($"FH_E_FNTBL_CALLCONV_UNKNOWN: {call_conv}")
         };
     }
