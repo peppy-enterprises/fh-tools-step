@@ -39,34 +39,29 @@ internal class Program {
     private static Dictionary<string, string> _type_map = [];
 
     static void Main(string[] args) {
-        Option<string> opt_file_path    = new Option<string>("--src", "Set the path to the source file.");
-        Option<string> opt_dest_path    = new Option<string>("--dest", "Set the folder where the C# file should be written.");
-        Option<string> opt_typemap_path = new Option<string>("--map", "Set the path to a Ghidra -> Fh type map.");
+        Option<string> opt_src_path     = new Option<string>("--src")  { Description = "Set the path to the source file."                    };
+        Option<string> opt_dest_path    = new Option<string>("--dest") { Description = "Set the folder where the C# file should be written." };
+        Option<string> opt_typemap_path = new Option<string>("--map")  { Description = "Set the path to a Ghidra -> Fh type map."            };
 
-        opt_file_path   .IsRequired = true;
-        opt_dest_path   .IsRequired = true;
-        opt_typemap_path.IsRequired = false;
+        opt_src_path    .Required = true;
+        opt_dest_path   .Required = true;
+        opt_typemap_path.Required = false;
 
         RootCommand root_cmd = new RootCommand("Process a Ghidra symbol table and create a C# code file.") {
-            opt_file_path,
+            opt_src_path,
             opt_dest_path,
             opt_typemap_path
         };
 
-        root_cmd.SetHandler(FhSTEPMain, new FhSTEPArgsBinder(
-            opt_file_path,
-            opt_dest_path,
-            opt_typemap_path));
+        ParseResult argparse_result = root_cmd.Parse(args);
 
-        root_cmd.Invoke(args);
+        string src_file_path = argparse_result.GetValue(opt_src_path)     ?? "";
+        string dest_path     = argparse_result.GetValue(opt_dest_path)    ?? "";
+        string typemap_path  = argparse_result.GetValue(opt_typemap_path) ?? "";
+
+        string dest_file_path = Path.Join(dest_path, $"call-{Guid.NewGuid()}.g.cs");
+        _emit_symtable(src_file_path, dest_file_path, typemap_path);
         return;
-    }
-
-    static void FhSTEPMain(FhSTEPArgs config) {
-        FhSTEPConfig.CLIRead(config);
-
-        string dest_file_name = Path.Join(FhSTEPConfig.DestPath, $"call-{Guid.NewGuid()}.g.cs");
-        _emit_symtable(dest_file_name);
     }
 
     // TODO: fix fix fix fix fix fix fix
@@ -170,11 +165,11 @@ public static class FhCall {
 """;
     }
 
-    private static void _emit_symtable(string dest_path) {
+    private static void _emit_symtable(string src_path, string dest_path, string typemap_path) {
         Stopwatch perf = Stopwatch.StartNew();
 
         try {
-            string type_map_str = File.ReadAllText(FhSTEPConfig.TypeMapPath);
+            string type_map_str = File.ReadAllText(typemap_path);
             _type_map = JsonSerializer.Deserialize<Dictionary<string, string>>(type_map_str) ?? [];
         }
         catch {
@@ -182,7 +177,7 @@ public static class FhCall {
         }
 
         // Required because Ghidra exports to CSV, so they have to escape commas strongly.
-        string               unescaped_json      = _unescape(File.ReadAllText(FhSTEPConfig.SrcPath));
+        string               unescaped_json      = _unescape(File.ReadAllText(src_path));
         FhGhidraSymbolDecl[] symbol_declarations = JsonSerializer.Deserialize<FhGhidraSymbolDecl[]>(unescaped_json) ?? [];
 
         // Reusable symbol locals.
