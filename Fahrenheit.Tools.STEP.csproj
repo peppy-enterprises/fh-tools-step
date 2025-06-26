@@ -15,11 +15,6 @@
 		<Product>Fahrenheit Symbol Table Parser</Product>
 	</PropertyGroup>
 
-	<!-- LOCAL DEPLOYMENT TARGET -->
-	<PropertyGroup>
-		<CopyToDir>$(SolutionDir)artifacts\localdeploy\bin</CopyToDir>
-	</PropertyGroup>
-
 	<!-- SDK REFERENCES -->
 	<Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 	<Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
@@ -33,7 +28,8 @@
     <ItemGroup>
         <ProjectReference Include="..\..\base\core\Fahrenheit.Core.csproj">
             <Private>false</Private>
-            <ExcludeAssets>runtime</ExcludeAssets>
+            <!-- Hack due to NuGet's complete inability to properly handle transitive native deps -->
+            <IncludeAssets>compile</IncludeAssets>
         </ProjectReference>
 	</ItemGroup>
 
@@ -43,9 +39,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <None Update="typemap.json">
-	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-	  </None>
+	    <None Update="typemap.json">
+	      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	    </None>
 	</ItemGroup>
 
 </Project>
