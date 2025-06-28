@@ -1,47 +1,47 @@
 ﻿<Project>
 
-	<!-- ASSEMBLY BASIC PROPERTIES -->
-	<PropertyGroup>
-		<OutputType>Exe</OutputType>
-		<TargetFramework>net9.0</TargetFramework>
-		<ImplicitUsings>disable</ImplicitUsings>
-		<Nullable>enable</Nullable>
-	</PropertyGroup>
+    <!-- ASSEMBLY BASIC PROPERTIES -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    </PropertyGroup>
 
-	<!-- ASSEMBLY ADDITIONAL PROPERTIES -->
-	<PropertyGroup>
-		<AssemblyName>fhstep</AssemblyName>
-		<AssemblyTitle>Fahrenheit Symbol Table Parser</AssemblyTitle>
-		<Product>Fahrenheit Symbol Table Parser</Product>
-	</PropertyGroup>
+    <!-- ASSEMBLY ADDITIONAL PROPERTIES -->
+    <PropertyGroup>
+        <AssemblyName>fhstep</AssemblyName>
+        <AssemblyTitle>Fahrenheit Symbol Table Parser</AssemblyTitle>
+        <Product>Fahrenheit Symbol Table Parser</Product>
+    </PropertyGroup>
 
-	<!-- SDK REFERENCES -->
-	<Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
-	<Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+    <!-- SDK REFERENCES -->
+    <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+    <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
-	<!-- SHARED FILE LINKS -->
-	<ItemGroup>
-		<None Include="$(SolutionDir).editorconfig" Link=".editorconfig" />
-	</ItemGroup>
+    <!-- SHARED FILE LINKS -->
+    <ItemGroup>
+        <None Include="$(SolutionDir).editorconfig" Link=".editorconfig" />
+    </ItemGroup>
 
-	<!-- PROJECT REFERENCES -->
+    <!-- PROJECT REFERENCES -->
     <ItemGroup>
         <ProjectReference Include="..\..\base\core\Fahrenheit.Core.csproj">
-            <Private>false</Private>
-            <!-- Hack due to NuGet's complete inability to properly handle transitive native deps -->
-            <IncludeAssets>compile</IncludeAssets>
+            <ExcludeAssets Condition="'$(Configuration)'=='Release'">runtime;native</ExcludeAssets>
+            <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
         </ProjectReference>
-	</ItemGroup>
+    </ItemGroup>
 
-	<!-- PACKAGE REFERENCES -->
-	<ItemGroup>
-		<PackageReference Include="System.CommandLine" Version="2.0.0-beta5.25306.1" />
-	</ItemGroup>
+    <!-- PACKAGE REFERENCES -->
+    <ItemGroup>
+        <PackageReference Include="System.CommandLine" Version="2.0.0-beta5.25306.1" />
+    </ItemGroup>
 
-	<ItemGroup>
-	    <None Update="typemap.json">
-	      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-	    </None>
-	</ItemGroup>
+    <ItemGroup>
+        <None Update="fhstep.typemap.json">
+          <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
 
 </Project>
