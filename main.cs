@@ -11,26 +11,40 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 
+using CsvHelper;
+using CsvHelper.Configuration.Attributes;
+
 namespace Fahrenheit.Tools.STEP;
 
-// https://csvjson.com/csv2json - PARSE NUMBERS: OFF, PARSE JSON: OFF, OUTPUT: ARRAY
-internal sealed record FhGhidraSymbolDecl(
-    string Name,
-    string Location,
-    string Signature,
-    string Source,
-    string Type,
-    string FuncName,
-    string CallConv,
-    string Namespace);
-
-internal ref struct FhMethodLocal {
-    public ReadOnlySpan<char>           ReturnType;
-    public ReadOnlySpan<char>           FunctionName;
-    public List<FhSymbolParameterLocal> Parameters;
+// In Ghidra, select fields: Name, Location, Function Signature, Symbol Source, Symbol Type, Function Name, Call Conv, Namespace
+internal struct FhMethodDecl {
+    [Index(0)] public string Name      { get; set; }
+    [Index(1)] public string Location  { get; set; }
+    [Index(2)] public string Signature { get; set; }
+    [Index(3)] public string Source    { get; set; }
+    [Index(4)] public string Type      { get; set; }
+    [Index(5)] public string FuncName  { get; set; }
+    [Index(6)] public string CallConv  { get; set; }
+    [Index(7)] public string Namespace { get; set; }
 }
 
-internal struct FhSymbolParameterLocal(ReadOnlySpan<char> ParameterType, ReadOnlySpan<char> ParameterName) {
+// In Ghidra, select fields: Name, Location, Type, Data Type, Namespace, Source
+// Filter by: Source - User Defined, Type - Data Label
+internal struct FhDataLabelDecl {
+    [Index(0)] public string Name      { get; set; }
+    [Index(1)] public string Location  { get; set; }
+    [Index(2)] public string Type      { get; set; }
+    [Index(3)] public string DataType  { get; set; }
+    [Index(4)] public string Namespace { get; set; }
+    [Index(5)] public string Source    { get; set; }
+}
+
+internal ref struct FhMethodExtraData {
+    public ReadOnlySpan<char>          ReturnType;
+    public List<FhMethodParameterData> Parameters;
+}
+
+internal struct FhMethodParameterData(ReadOnlySpan<char> ParameterType, ReadOnlySpan<char> ParameterName) {
     public string ParameterType = new string(ParameterType);
     public string ParameterName = new string(ParameterName);
 }
@@ -55,19 +69,19 @@ internal class Program {
 
         ParseResult argparse_result = root_cmd.Parse(args);
 
-        string src_file_path = argparse_result.GetValue(opt_src_path)     ?? "";
+        string src_path      = argparse_result.GetValue(opt_src_path)     ?? "";
         string dest_path     = argparse_result.GetValue(opt_dest_path)    ?? "";
         string typemap_path  = argparse_result.GetValue(opt_typemap_path) ?? "";
 
         string dest_file_path = Path.Join(dest_path, $"call-{Guid.NewGuid()}.g.cs");
-        _emit_symtable(src_file_path, dest_file_path, typemap_path);
+        _emit_symtable(src_path, dest_file_path, typemap_path);
         return;
     }
 
     // TODO: fix fix fix fix fix fix fix
-    private static bool _is_interpretable(FhGhidraSymbolDecl symbol) {
+    private static bool _method_is_interpretable(FhMethodDecl symbol) {
         return  symbol.Type      == "Function"     &&
-               (symbol.Source    == "USER_DEFINED" || 
+               (symbol.Source    == "USER_DEFINED" ||
                 symbol.Source    == "IMPORTED")    &&
                 symbol.Namespace == "Global"       && // might be a removable restriction
                !symbol.Name.Contains("operator")   && // ignore operator.new, operator.delete
@@ -77,14 +91,15 @@ internal class Program {
                !symbol.Signature.Contains('-');
     }
 
-    private static string _unescape(string symtable_json) {
-        return symtable_json.Replace("\\\\,",  ",")  // Ghidra CSV unescape
-                            .Replace("\"\\",   "" )  // Ghidra CSV unescape
-                            .Replace(" *",     "*")  // Ghidra "float * param_1" -> "float* param_1"
-                            .Replace("+",      "" );
+    private static void _fix_methods(Span<FhMethodDecl> methods) {
+        for (int i = 0; i < methods.Length; i++) {
+            methods[i].Signature = methods[i].Signature.Replace(" *"   , "*") // Ghidra "float * param_1" -> "float* param_1"
+                                                       .Replace("\\,"  , ",") // Ghidra CSV unescape
+                                                       .Replace("\"\\" , "" );
+        }
     }
 
-    private static ReadOnlySpan<char> _translate_callconv(ReadOnlySpan<char> call_conv) {
+    private static ReadOnlySpan<char> _method_translate_callconv(ReadOnlySpan<char> call_conv) {
         return call_conv switch {
             "__thiscall" => "[UnmanagedFunctionPointer(CallingConvention.ThisCall)]",
             "__cdecl"    => "[UnmanagedFunctionPointer(CallingConvention.Cdecl)]",
@@ -96,49 +111,61 @@ internal class Program {
     }
 
     // TODO: fix
-    private static ReadOnlySpan<char> _translate_param_type(string param_type) {
+    private static ReadOnlySpan<char> _method_translate_param_type(string param_type) {
         return _type_map.TryGetValue(param_type, out string? mapped_type)
             ? mapped_type
             : "nint";
     }
 
     // TODO: fix
-    private static ReadOnlySpan<char> _translate_return_type(string return_type) {
+    private static ReadOnlySpan<char> _method_translate_return_type(string return_type) {
         return return_type switch {
             "void"      => "void",
             "undefined" => "void",
-            _           => _translate_param_type(return_type)
+            _           => _method_translate_param_type(return_type)
         };
     }
 
     // TODO: fix
-    private static ReadOnlySpan<char> _translate_param_name(ReadOnlySpan<char> param_name) {
+    private static ReadOnlySpan<char> _method_translate_param_name(ReadOnlySpan<char> param_name) {
         return param_name switch {
             "this" => "_this",
             _      => param_name
         };
     }
 
-    private static string _emit_params(FhMethodLocal method) {
+    private static string _method_emit_params(FhMethodExtraData method) {
         List<string> param_str = [];
 
-        foreach (FhSymbolParameterLocal param in method.Parameters) {
-            param_str.Add($"{_translate_param_type(param.ParameterType)} {_translate_param_name(param.ParameterName)}");
+        foreach (FhMethodParameterData param in method.Parameters) {
+            param_str.Add($"{_method_translate_param_type(param.ParameterType)} {_method_translate_param_name(param.ParameterName)}");
         }
 
         return $"({string.Join(", ", param_str)})";
     }
 
-    private static string _emit_method(FhMethodLocal method, FhGhidraSymbolDecl symbol) {
+    private static string _emit_method(FhMethodExtraData method, FhMethodDecl symbol) {
         int addr = int.Parse(symbol.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
 
         return $"""
     // Original after pruning:
     // {symbol.CallConv} {symbol.Signature} at {symbol.Location}
 
-    {_translate_callconv(symbol.CallConv)}
-    public unsafe delegate {method.ReturnType} {method.FunctionName}{_emit_params(method)};
+    {_method_translate_callconv(symbol.CallConv)}
+    public unsafe delegate {method.ReturnType} {symbol.FuncName}{_method_emit_params(method)};
     public const nint __addr_{symbol.Name} = 0x{addr.ToString("X")};
+
+""";
+    }
+
+    private static string _emit_global(FhDataLabelDecl global) {
+        int addr = int.Parse(global.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+
+        return $"""
+    // Original after pruning:
+    // {global.DataType} {global.Name} at {global.Location}
+
+    public const nint __addr_{global.Name} = 0x{addr.ToString("X")};
 
 """;
     }
@@ -176,28 +203,39 @@ public static class FhCall {
             Console.WriteLine("Type map load failed or type map path not specified.");
         }
 
-        // Required because Ghidra exports to CSV, so they have to escape commas strongly.
-        string               unescaped_json      = _unescape(File.ReadAllText(src_path));
-        FhGhidraSymbolDecl[] symbol_declarations = JsonSerializer.Deserialize<FhGhidraSymbolDecl[]>(unescaped_json) ?? [];
+        string method_file_path = Path.Join(src_path, "methods.csv");
+        string global_file_path = Path.Join(src_path, "globals.csv");
+
+        FhMethodDecl[]    methods = [];
+        FhDataLabelDecl[] globals = [];
+
+        using (StreamReader method_reader = new StreamReader(method_file_path))
+        using (StreamReader global_reader = new StreamReader(global_file_path))
+        using (CsvReader    method_csv    = new CsvReader   (method_reader, CultureInfo.InvariantCulture))
+        using (CsvReader    global_csv    = new CsvReader   (global_reader, CultureInfo.InvariantCulture)) {
+            methods = [ .. method_csv.GetRecords<FhMethodDecl>()    ];
+            globals = [ .. global_csv.GetRecords<FhDataLabelDecl>() ];
+        }
+
+        _fix_methods(methods);
 
         // Reusable symbol locals.
-        List<FhSymbolParameterLocal> parameters = [];
-        FhMethodLocal                method     = new FhMethodLocal();
+        List<FhMethodParameterData> parameters  = [];
+        FhMethodExtraData           method_data = new FhMethodExtraData();
 
         // Actual file contents.
         StringBuilder sb = new(_emit_prologue());
 
-        foreach (FhGhidraSymbolDecl symbol in symbol_declarations) {
-            if (!_is_interpretable(symbol)) {
+        foreach (FhMethodDecl method in methods) {
+            if (!_method_is_interpretable(method)) {
                 sb.AppendLine($"    // Symbol skipped (deemed uninterpretable or explicitly rejected):");
-                sb.AppendLine($"    // {symbol.CallConv} {symbol.Signature} at {symbol.Location}");
+                sb.AppendLine($"    // {method.CallConv} {method.Signature} at {method.Location}");
                 sb.AppendLine();
                 continue;
             }
 
             // We lex the function signature in the form {RETURN_TYPE} {NAME}({PARAMETER_TYPE} {PARAMETER_NAME} ... );
-            // !!! temporarily pessimized !!! fixme later !!!
-            string[] tokens = symbol.Signature.Split([ ' ', ',', '(', ')' ], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string[] tokens = method.Signature.Split([ ' ', ',', '(', ')' ], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
             string original_return_type   = tokens[0]; // We will translate this later.
             string original_function_name = tokens[1]; // Preserved verbatim.
@@ -206,15 +244,18 @@ public static class FhCall {
                 ReadOnlySpan<char> original_parameter_type = tokens[i++];
                 ReadOnlySpan<char> original_parameter_name = tokens[i++];
 
-                parameters.Add(new FhSymbolParameterLocal(original_parameter_type, original_parameter_name));
+                parameters.Add(new FhMethodParameterData(original_parameter_type, original_parameter_name));
             }
 
-            method.ReturnType   = _translate_return_type(original_return_type);
-            method.FunctionName = original_function_name;
-            method.Parameters   = parameters;
+            method_data.ReturnType = _method_translate_return_type(original_return_type);
+            method_data.Parameters = parameters;
 
-            sb.AppendLine(_emit_method(method, symbol));
+            sb.AppendLine(_emit_method(method_data, method));
             parameters.Clear();
+        }
+
+        foreach (FhDataLabelDecl global in globals) {
+            sb.AppendLine(_emit_global(global));
         }
 
         sb.AppendLine("}");

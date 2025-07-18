@@ -25,16 +25,9 @@
         <None Include="$(SolutionDir).editorconfig" Link=".editorconfig" />
     </ItemGroup>
 
-    <!-- PROJECT REFERENCES -->
-    <ItemGroup>
-        <ProjectReference Include="..\..\base\core\Fahrenheit.Core.csproj">
-            <ExcludeAssets Condition="'$(Configuration)'=='Release'">runtime;native</ExcludeAssets>
-            <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-        </ProjectReference>
-    </ItemGroup>
-
     <!-- PACKAGE REFERENCES -->
     <ItemGroup>
+        <PackageReference Include="CsvHelper" Version="33.1.0" />
         <PackageReference Include="System.CommandLine" Version="2.0.0-beta5.25306.1" />
     </ItemGroup>
 
