@@ -85,16 +85,16 @@ internal class Program {
     /// <param name="method">The method declaration to be checked.</param>
     /// <returns>Whether the provided method declaration should be interpreted.</returns>
     private static bool _method_is_interpretable(FhMethodDecl method) {
-        return  method is {
-                    Type: "Function",
-                    Source: "USER_DEFINED" or "IMPORTED",
-                    Namespace: "Global", // Exclude potentially proprietary symbols
-                } &&
-                !method.Name.Contains("operator") && // ignore operator.new, operator.delete
-                !method.Name.Contains("Unwind@") &&  // ignore Unwind@{ADDR} thunks
-                !method.Signature.Contains('.') &&   // ignore vararg functions
-                !method.Signature.Contains(':') &&   // ignore anything that even vaguely resembles a C++ namespace
-                !method.Signature.Contains('-');
+        return method is {
+                   Type:      "Function",
+                   Source:    "USER_DEFINED" or "IMPORTED",
+                   Namespace: "Global", // Exclude potentially proprietary symbols
+               } &&
+               !method.Name.Contains("operator") && // ignore operator.new, operator.delete
+               !method.Name.Contains("Unwind@")  && // ignore Unwind@{ADDR} thunks
+               !method.Signature.Contains('.')   && // ignore vararg functions
+               !method.Signature.Contains(':')   && // ignore anything that even vaguely resembles a C++ namespace
+               !method.Signature.Contains('-');
     }
 
     /// <summary>
@@ -196,7 +196,7 @@ internal class Program {
     /// <param name="method_data">The method data associated with the method.</param>
     /// <returns>A valid C# delegate declaration and associated function address constant.</returns>
     private static string _emit_method(FhMethodDecl method, FhMethodExtraData method_data) {
-        int addr = Int32.Parse(method.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+        int addr = int.Parse(method.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
 
         /*TODO: Consider using a StringBuilder instead,
                 the blank line at the end and the messy indentation are cons that should be weighted.*/
