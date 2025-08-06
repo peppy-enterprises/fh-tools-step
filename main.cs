@@ -16,7 +16,9 @@ using CsvHelper.Configuration.Attributes;
 
 namespace Fahrenheit.Tools.STEP;
 
-// In Ghidra, select fields: Name, Location, Function Signature, Symbol Source, Symbol Type, Function Name, Call Conv, Namespace
+// In Ghidra, select fields:
+// Name, Location, Function Signature, Symbol Source,
+// Symbol Type, Function Name, Call Conv, Namespace
 internal struct FhMethodDecl {
     [Index(0)] public string Name      { get; set; }
     [Index(1)] public string Location  { get; set; }
@@ -52,7 +54,7 @@ internal struct FhMethodParameterData(ReadOnlySpan<char> ParameterType, ReadOnly
 internal class Program {
     private static Dictionary<string, string> _type_map = [];
 
-    static void Main(string[] args) {
+    private static void Main(string[] args) {
         Option<string> opt_src_path     = new Option<string>("--src")  { Description = "Set the path to the source file."                    };
         Option<string> opt_dest_path    = new Option<string>("--dest") { Description = "Set the folder where the C# file should be written." };
         Option<string> opt_typemap_path = new Option<string>("--map")  { Description = "Set the path to a Ghidra -> Fh type map."            };
@@ -75,30 +77,47 @@ internal class Program {
 
         string dest_file_path = Path.Join(dest_path, $"call-{Guid.NewGuid()}.g.cs");
         _emit_symtable(src_path, dest_file_path, typemap_path);
-        return;
     }
 
-    // TODO: fix fix fix fix fix fix fix
-    private static bool _method_is_interpretable(FhMethodDecl symbol) {
-        return  symbol.Type      == "Function"     &&
-               (symbol.Source    == "USER_DEFINED" ||
-                symbol.Source    == "IMPORTED")    &&
-                symbol.Namespace == "Global"       && // might be a removable restriction
-               !symbol.Name.Contains("operator")   && // ignore operator.new, operator.delete
-               !symbol.Name.Contains("Unwind@")    && // ignore Unwind@{ADDR} thunks
-               !symbol.Signature.Contains('.')     && // ignore vararg functions
-               !symbol.Signature.Contains(':')     && // ignore anything that even vaguely resembles a C++ namespace
-               !symbol.Signature.Contains('-');
+    /// <summary>
+    /// Determines whether a specific method declaration provided by Ghidra should be interpreted.
+    /// </summary>
+    /// <param name="method">The method declaration to be checked.</param>
+    /// <returns>Whether the provided method declaration should be interpreted.</returns>
+    private static bool _method_is_interpretable(FhMethodDecl method) {
+        return  method is {
+                    Type: "Function",
+                    Source: "USER_DEFINED" or "IMPORTED",
+                    Namespace: "Global", // Exclude potentially proprietary symbols
+                } &&
+                !method.Name.Contains("operator") && // ignore operator.new, operator.delete
+                !method.Name.Contains("Unwind@") &&  // ignore Unwind@{ADDR} thunks
+                !method.Signature.Contains('.') &&   // ignore vararg functions
+                !method.Signature.Contains(':') &&   // ignore anything that even vaguely resembles a C++ namespace
+                !method.Signature.Contains('-');
     }
 
+    /// <summary>
+    /// Modified provided methods, fixing formatting and undoing Ghidra's CSV escapes.
+    /// </summary>
+    /// <param name="methods">Ghidra-provided method declarations to format and unescape.</param>
+    //TODO: Maybe should be called `_format_methods`
     private static void _fix_methods(Span<FhMethodDecl> methods) {
         for (int i = 0; i < methods.Length; i++) {
-            methods[i].Signature = methods[i].Signature.Replace(" *"   , "*") // Ghidra "float * param_1" -> "float* param_1"
-                                                       .Replace("\\,"  , ",") // Ghidra CSV unescape
-                                                       .Replace("\"\\" , "" );
+            methods[i].Signature = methods[i].Signature
+                .Replace(" *"   , "*") // Ghidra "float * param_1" -> "float* param_1"
+                .Replace("\\,"  , ",") // Ghidra CSV unescape
+                .Replace("\"\\" , "" );
         }
     }
 
+    /// <summary>
+    /// Convert from a C++/Ghidra calling convention specifier to the equivalent C# attribute for delegates.
+    /// </summary>
+    /// <param name="call_conv">The C++/Ghidra-style calling convention specifier.</param>
+    /// <returns>An equivalent C# attribute applicable to delegates.</returns>
+    /// <exception cref="ArgumentException">Thrown if the C++/Ghidra-style calling convention specifier is not recognized.</exception>
+    //TODO: Maybe should be called `_method_map_callconv` or `_method_emit_callconv` (given `_method_emit_params`)?
     private static ReadOnlySpan<char> _method_translate_callconv(ReadOnlySpan<char> call_conv) {
         return call_conv switch {
             "__thiscall" => "[UnmanagedFunctionPointer(CallingConvention.ThisCall)]",
@@ -106,18 +125,31 @@ internal class Program {
             "__stdcall"  => "[UnmanagedFunctionPointer(CallingConvention.StdCall)]",
             "__fastcall" => "[UnmanagedFunctionPointer(CallingConvention.FastCall)]",
             "unknown"    => "[UnmanagedFunctionPointer(CallingConvention.Cdecl)]",
-            _            => throw new Exception($"FH_E_FNTBL_CALLCONV_UNKNOWN: {call_conv}")
+            _ => throw new ArgumentException($"Encountered an unknown calling convention `{call_conv}` while parsing methods."),
         };
     }
 
-    // TODO: fix
+    /// <summary>
+    /// Applies the user-defined type map to a parameter type provided by Ghidra.
+    /// </summary>
+    /// <example>
+    /// Putting <c>"undefined4": "uint"</c> in the type map
+    /// will map Ghidra's <c>undefined4</c> type to C#'s <c>uint</c> type.
+    /// </example>
+    /// <param name="param_type">The string representation of a Ghidra parameter type.</param>
+    /// <returns>The mapped parameter type.</returns>
+    //TODO: Maybe should be called `_map_param_type`?
     private static ReadOnlySpan<char> _method_translate_param_type(string param_type) {
-        return _type_map.TryGetValue(param_type, out string? mapped_type)
-            ? mapped_type
-            : "nint";
+        return _type_map.GetValueOrDefault(param_type, "nint");
     }
 
-    // TODO: fix
+    /// <summary>
+    /// Applies the user-defined type map to a parameter type provided by Ghidra.<br/>
+    /// Unlike <see cref="_method_translate_param_type"/>, accounts for <c>void</c>.
+    /// </summary>
+    /// <param name="return_type">The string representation of a Ghidra return type.</param>
+    /// <returns>The mapped return type.</returns>
+    //TODO: Maybe should be called `_map_return_type`?
     private static ReadOnlySpan<char> _method_translate_return_type(string return_type) {
         return return_type switch {
             "void"      => "void",
@@ -126,14 +158,27 @@ internal class Program {
         };
     }
 
-    // TODO: fix
+    /// <summary>
+    /// Modifies a parameter name to not conflict with C# keywords.
+    /// </summary>
+    /// <param name="param_name">A parameter name to modify.</param>
+    /// <returns>The modified parameter name.</returns>
+    //TODO: Maybe should be called `_escape_param_name` or `_modify_param_name`?
     private static ReadOnlySpan<char> _method_translate_param_name(ReadOnlySpan<char> param_name) {
+        /*TODO: Consider https://stackoverflow.com/a/44728184 or https://stackoverflow.com/a/44728208
+                Something akin to `return cs.IsValidIdentifier(param_name) ? param_name : $"_{param_name}";`*/
         return param_name switch {
             "this" => "_this",
-            _      => param_name
+            _      => param_name,
         };
     }
 
+    /// <summary>
+    /// Translates a method's parameter list to a string with types and names mapped.
+    /// </summary>
+    /// <param name="method">The method to translate the parameter list of.</param>
+    /// <returns>A string representation of the parameter list, valid as C# code.</returns>
+    //TODO: Why doesn't this just take in a `List<FhMethodParameterData>`?
     private static string _method_emit_params(FhMethodExtraData method) {
         List<string> param_str = [];
 
@@ -141,38 +186,58 @@ internal class Program {
             param_str.Add($"{_method_translate_param_type(param.ParameterType)} {_method_translate_param_name(param.ParameterName)}");
         }
 
-        return $"({string.Join(", ", param_str)})";
+        return $"({String.Join(", ", param_str)})";
     }
 
-    private static string _emit_method(FhMethodExtraData method, FhMethodDecl symbol) {
-        int addr = int.Parse(symbol.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+    /// <summary>
+    /// Converts a method and the associated Ghidra symbol declaration into valid C# code.
+    /// </summary>
+    /// <param name="method">A Ghidra-provided method.</param>
+    /// <param name="method_data">The method data associated with the method.</param>
+    /// <returns>A valid C# delegate declaration and associated function address constant.</returns>
+    private static string _emit_method(FhMethodDecl method, FhMethodExtraData method_data) {
+        int addr = Int32.Parse(method.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
 
+        /*TODO: Consider using a StringBuilder instead,
+                the blank line at the end and the messy indentation are cons that should be weighted.*/
         return $"""
     // Original after pruning:
-    // {symbol.CallConv} {symbol.Signature} at {symbol.Location}
+    // {method.CallConv} {method.Signature} at {method.Location}
 
-    {_method_translate_callconv(symbol.CallConv)}
-    public unsafe delegate {method.ReturnType} {symbol.FuncName}{_method_emit_params(method)};
-    public const nint __addr_{symbol.Name} = 0x{addr.ToString("X")};
+    {_method_translate_callconv(method.CallConv)}
+    public unsafe delegate {method_data.ReturnType} {method.FuncName}{_method_emit_params(method_data)};
+    public const nint __addr_{method.Name} = 0x{addr:X};
 
 """;
     }
 
+    /// <summary>
+    /// Converts a global symbol provided by Ghidra
+    /// </summary>
+    /// <param name="global">A global symbol provided by Ghidra</param>
+    /// <returns>A valid C# const declaration for the given global</returns>
     private static string _emit_global(FhDataLabelDecl global) {
-        int addr = int.Parse(global.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+        int addr = Int32.Parse(global.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
 
+        /*TODO: Consider using a StringBuilder instead,
+                the blank line at the end and the messy indentation are cons that should be weighted.*/
+        //TODO: Add a typed const declaration using the provided typemap json.
         return $"""
     // Original after pruning:
     // {global.DataType} {global.Name} at {global.Location}
 
-    public const nint __addr_{global.Name} = 0x{addr.ToString("X")};
+    public const nint __addr_{global.Name} = 0x{addr:X};
 
 """;
     }
 
+    /// <summary>
+    /// Return FhCall's introductory comment.
+    /// </summary>
+    /// <returns>An introductory comment.</returns>
     private static string _emit_prologue() {
         return $$"""
-/* [step {{DateTime.UtcNow.ToString("dd/M/yy HH:mm")}}]
+/* [step {{DateTime.UtcNow:dd/M/yy HH:mm}}]
  * This file was generated by Fahrenheit.Tools.STEP (https://github.com/peppy-enterprises/fh-tools-step/).
  *
  * Its purpose is to provide auto-generated delegates to allow you to call or hook game functions without having
@@ -189,9 +254,18 @@ namespace Fahrenheit.Core;
 
 public static class FhCall {
 
-""";
+"""; //TODO: Why does this return the first few lines of code *along* with the comment? These should ideally be separate.
     }
 
+    /// <summary>
+    /// Emits a C# code file to a specified path using exported Ghidra symbols and a user-defined typemap.
+    /// </summary>
+    /// <param name="src_path">
+    ///     The path to the directory containing the Ghidra symbol exports.<br/>
+    ///     The directory must contain appropriately exported <c>methods.csv</c> and <c>globals.csv</c>.
+    /// </param>
+    /// <param name="dest_path">The path to write the C# code file to.</param>
+    /// <param name="typemap_path">The path to the user-defined typemap. Typemap must be a valid JSON.</param>
     private static void _emit_symtable(string src_path, string dest_path, string typemap_path) {
         Stopwatch perf = Stopwatch.StartNew();
 
@@ -206,9 +280,20 @@ public static class FhCall {
         string method_file_path = Path.Join(src_path, "methods.csv");
         string global_file_path = Path.Join(src_path, "globals.csv");
 
-        FhMethodDecl[]    methods = [];
-        FhDataLabelDecl[] globals = [];
+        FhMethodDecl[]    methods;
+        FhDataLabelDecl[] globals;
 
+        /*TODO: Should these be separate for readability's sake?
+        * using (StreamReader method_reader = new StreamReader(method_file_path))
+        * using (CsvReader    method_csv    = new CsvReader   (method_reader, CultureInfo.InvariantCulture)) {
+        *     methods = [ .. method_csv.GetRecords<FhMethodDecl>() ];
+        * }
+        * * * * *
+        * using (StreamReader global_reader = new StreamReader(global_file_path))
+        * using (CsvReader    global_csv    = new CsvReader   (global_reader, CultureInfo.InvariantCulture)) {
+        *     globals = [ .. global_csv.GetRecords<FhDataLabelDecl>() ];
+        * }
+        */
         using (StreamReader method_reader = new StreamReader(method_file_path))
         using (StreamReader global_reader = new StreamReader(global_file_path))
         using (CsvReader    method_csv    = new CsvReader   (method_reader, CultureInfo.InvariantCulture))
@@ -235,14 +320,18 @@ public static class FhCall {
             }
 
             // We lex the function signature in the form {RETURN_TYPE} {NAME}({PARAMETER_TYPE} {PARAMETER_NAME} ... );
-            string[] tokens = method.Signature.Split([ ' ', ',', '(', ')' ], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string[] tokens = method.Signature.Split(
+                [ ' ', ',', '(', ')' ],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+            );
 
             string original_return_type   = tokens[0]; // We will translate this later.
+            //TODO: Remove `+` from custom function names.
             string original_function_name = tokens[1]; // Preserved verbatim.
 
-            for (int i = 2; i < tokens.Length - 1; ) {
-                ReadOnlySpan<char> original_parameter_type = tokens[i++];
-                ReadOnlySpan<char> original_parameter_name = tokens[i++];
+            for (int i = 2; i < tokens.Length - 1; i += 2) {
+                ReadOnlySpan<char> original_parameter_type = tokens[i];
+                ReadOnlySpan<char> original_parameter_name = tokens[i + 1];
 
                 parameters.Add(new FhMethodParameterData(original_parameter_type, original_parameter_name));
             }
@@ -250,7 +339,7 @@ public static class FhCall {
             method_data.ReturnType = _method_translate_return_type(original_return_type);
             method_data.Parameters = parameters;
 
-            sb.AppendLine(_emit_method(method_data, method));
+            sb.AppendLine(_emit_method(method, method_data));
             parameters.Clear();
         }
 
