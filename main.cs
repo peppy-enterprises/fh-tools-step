@@ -88,7 +88,7 @@ internal class Program {
         return  method is {
                     Type: "Function",
                     Source: "USER_DEFINED" or "IMPORTED",
-                    Namespace: "Global", // might be a removable restriction
+                    Namespace: "Global", // Exclude potentially proprietary symbols
                 } &&
                 !method.Name.Contains("operator") && // ignore operator.new, operator.delete
                 !method.Name.Contains("Unwind@") &&  // ignore Unwind@{ADDR} thunks
