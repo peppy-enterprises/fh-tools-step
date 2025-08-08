@@ -19,7 +19,7 @@ namespace Fahrenheit.Tools.STEP;
 // In Ghidra, select fields:
 // Name, Location, Function Signature, Symbol Source,
 // Symbol Type, Function Name, Call Conv, Namespace
-internal struct FnFuncDecl {
+internal struct FhFuncDecl {
     [Index(0)] public string Name      { get; set; }
     [Index(1)] public string Location  { get; set; }
     [Index(2)] public string Signature { get; set; }
@@ -57,11 +57,11 @@ internal static class Program {
 
     private static void Main(string[] args) {
         Option<string> opt_src_path     = new Option<string>("--src")
-                { Description = "Set the path to the directory containing the exported symbol files." };
+            { Description = "Set the path to the directory containing the exported symbol files." };
         Option<string> opt_dest_path    = new Option<string>("--dest")
-                { Description = "Set the folder where the C# file should be written." };
+            { Description = "Set the folder where the C# file should be written." };
         Option<string> opt_typemap_path = new Option<string>("--map")
-                { Description = "Set the path to a Ghidra -> Fh type map." };
+            { Description = "Set the path to a Ghidra -> Fh type map." };
 
         opt_src_path    .Required = true;
         opt_dest_path   .Required = true;
@@ -88,7 +88,7 @@ internal static class Program {
     /// </summary>
     /// <param name="function">The function declaration to be checked.</param>
     /// <returns>Whether the provided function declaration should be interpreted.</returns>
-    private static bool _should_interpret(FnFuncDecl function) {
+    private static bool _should_interpret(FhFuncDecl function) {
         return function is {
                    Type:      "Function",
                    Source:    "USER_DEFINED" or "IMPORTED",
@@ -105,7 +105,7 @@ internal static class Program {
     /// Modifies provided functions, fixing formatting and undoing Ghidra's CSV escapes.
     /// </summary>
     /// <param name="functions">Ghidra-provided function declarations to format and unescape.</param>
-    private static void _format_functions(Span<FnFuncDecl> functions) {
+    private static void _format_functions(Span<FhFuncDecl> functions) {
         for (int i = 0; i < functions.Length; i++) {
             functions[i].Signature = functions[i].Signature
                 .Replace(" *"   , "*") // Ghidra "float * param_1" -> "float* param_1"
@@ -184,7 +184,7 @@ internal static class Program {
             param_str.Add($"{_map_type(param.ParameterType)} {_escape_param_name(param.ParameterName)}");
         }
 
-        return $"({String.Join(", ", param_str)})";
+        return $"({string.Join(", ", param_str)})";
     }
 
     /// <summary>
@@ -193,8 +193,8 @@ internal static class Program {
     /// <param name="function">A Ghidra-provided function declaration.</param>
     /// <param name="signature_data">The signature data associated with the function.</param>
     /// <returns>A valid C# delegate declaration and associated function address constant.</returns>
-    private static string _emit_function(FnFuncDecl function, FhFuncSignatureData signature_data) {
-        int addr = Int32.Parse(function.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+    private static string _emit_function(FhFuncDecl function, FhFuncSignatureData signature_data) {
+        int addr = int.Parse(function.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
 
         return $"""
                 // Original after pruning:
@@ -213,14 +213,15 @@ internal static class Program {
     /// <param name="global">A global symbol provided by Ghidra</param>
     /// <returns>A valid C# const declaration for the given global</returns>
     private static string _emit_global(FhDataLabelDecl global) {
-        int addr = Int32.Parse(global.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+        int                addr        = int.Parse(global.Location, NumberStyles.HexNumber, CultureInfo.InvariantCulture) - 0x400000;
+        ReadOnlySpan<char> mapped_type = _map_type(global.DataType);
 
         //TODO: Make sure C# doesn't have issues with the pointer when the global is an array.
         return $"""
                 // Original after pruning:
                 // {global.DataType} {global.Name} at {global.Location}
 
-                public {_map_type(global.DataType)}* {global.Name} => 0x{addr:X};
+                public static {mapped_type}* {global.Name} => FhUtil.ptr_at<{mapped_type}>(0x{addr:X});
                 public const nint __addr_{global.Name} = 0x{addr:X};
 
             """;
@@ -267,15 +268,15 @@ internal static class Program {
             Console.WriteLine("Type map load failed or type map path not specified.");
         }
 
-        string global_file_path = Path.Join(src_path, "globals.csv");
+        string global_file_path   = Path.Join(src_path, "globals.csv");
         string function_file_path = Path.Join(src_path, "functions.csv");
 
-        FnFuncDecl[]      functions;
+        FhFuncDecl[]      functions;
         FhDataLabelDecl[] globals;
 
         using (StreamReader function_reader = new StreamReader(function_file_path))
         using (CsvReader    function_csv    = new CsvReader(function_reader, CultureInfo.InvariantCulture)) {
-            functions = [ .. function_csv.GetRecords<FnFuncDecl>() ];
+            functions = [ .. function_csv.GetRecords<FhFuncDecl>() ];
         }
 
         using (StreamReader global_reader = new StreamReader(global_file_path))
@@ -294,11 +295,11 @@ internal static class Program {
         StringBuilder sb = new(_emit_prologue());
 
         sb.AppendLine();
-        sb.AppendLine("namespace Fahrenheit.Core");
+        sb.AppendLine("namespace Fahrenheit.Core;");
         sb.AppendLine();
-        sb.AppendLine("public static class FhCall {");
+        sb.AppendLine("public static unsafe class FhCall {");
 
-        foreach (FnFuncDecl function in functions) {
+        foreach (FhFuncDecl function in functions) {
             if (!_should_interpret(function)) {
                 sb.AppendLine($"    // Symbol skipped (deemed uninterpretable or explicitly rejected):");
                 sb.AppendLine($"    // {function.CallConv} {function.Signature} at {function.Location}");
@@ -322,9 +323,8 @@ internal static class Program {
              * ... and so on
              */
 
-            signature_data.ReturnType = _map_return_type(tokens[0]);
-            //TODO: Add cleanup of function name (remove the '+' prefix)
-            signature_data.FunctionName = tokens[1];
+            signature_data.ReturnType   = _map_return_type(tokens[0]);
+            signature_data.FunctionName = tokens[1]; //TODO: Add cleanup of function name (remove the '+' prefix)
 
             // Parse parameters
             for (int i = 2; i < tokens.Length - 1; i += 2) {
