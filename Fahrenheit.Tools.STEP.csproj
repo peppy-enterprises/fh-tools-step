@@ -16,6 +16,12 @@
         <Product>Fahrenheit Symbol Table Parser</Product>
     </PropertyGroup>
 
+    <!-- PUBLISH SETTINGS -->
+    <PropertyGroup>
+        <PublishSingleFile>true</PublishSingleFile>
+        <SelfContained>false</SelfContained>
+    </PropertyGroup>
+
     <!-- SDK REFERENCES -->
     <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
     <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
