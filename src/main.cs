@@ -1,4 +1,6 @@
-﻿/* [fkelava 17/5/23 02:48]
+﻿// SPDX-License-Identifier: MIT
+
+/* [fkelava 17/5/23 02:48]
  * A small tool to emit (hopefully) valid C# code from Ghidra symbol JSONs.
  */
 
@@ -75,8 +77,8 @@ internal static class Program {
 
         ParseResult argparse_result = root_cmd.Parse(args);
 
-        string src_path      = argparse_result.GetValue(opt_src_path)     ?? "";
-        string dest_path     = argparse_result.GetValue(opt_dest_path)    ?? "";
+        string src_path      = argparse_result.GetValue(opt_src_path)!;
+        string dest_path     = argparse_result.GetValue(opt_dest_path)!;
         string typemap_path  = argparse_result.GetValue(opt_typemap_path) ?? "";
 
         string dest_file_path = Path.Join(dest_path, $"call-{Guid.NewGuid()}.g.cs");
